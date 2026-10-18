@@ -8,10 +8,16 @@ function canonicalLineKey(line) {
   if (/^1\d{10}$/.test(digits)) return digits.slice(1);
   return line.key;
 }
+function mergeSavedNumberShare(record) {
+  const lines = record.lines.map(line=>({...line}));
+  const remove = new Set();
+  lines.forEach((line,index)=>{if(!line.key.endsWith(':number-share'))return;const phone=line.key.slice(0,-':number-share'.length);const target=lines.find(candidate=>candidate.key===phone);if(target){target.cents+=line.cents;remove.add(index)}});
+  return {...record,lines:lines.filter((_,index)=>!remove.has(index))};
+}
 function readInvoiceRecords() {
   const saved = JSON.parse(localStorage.getItem(invoiceHistoryKey) || '[]');
   if (!Array.isArray(saved)) throw new Error('Invalid saved history');
-  return saved.filter(record => record && typeof record.invoice === 'string' && record.invoice.trim() && typeof record.period === 'string' && Array.isArray(record.lines) && record.lines.every(line => typeof line.key === 'string' && typeof line.label === 'string' && Number.isSafeInteger(line.cents))).map(record => ({...record, lines:record.lines.map(line => ({...line, key:canonicalLineKey(line)}))}));
+  return saved.filter(record => record && typeof record.invoice === 'string' && record.invoice.trim() && typeof record.period === 'string' && Array.isArray(record.lines) && record.lines.every(line => typeof line.key === 'string' && typeof line.label === 'string' && Number.isSafeInteger(line.cents))).map(record => ({...record, lines:record.lines.map(line => ({...line, key:canonicalLineKey(line)}))})).map(mergeSavedNumberShare);
 }
 function invoiceIdentity(value) { return value.trim().toLowerCase(); }
 function billingPeriodOrder(period) {
@@ -31,10 +37,10 @@ function buildInvoiceRecord(split) {
   return {
     invoice: $('invoice-number').value.trim(),
     period: $('billing-period').value.trim(),
-    lines: split.shares.map((share, index) => {
-      const label = persons[index].name.trim() || 'Person ' + (index + 1);
+    lines: combinedLineShares(split).map(share => {
+      const label = share.name;
       const phone = findPhoneNumbers(label)[0];
-      return {key: phone ? phone.key + (persons[index].isNumberShare ? ':number-share' : '') : 'name:' + label.toLowerCase(), label, cents: share.total};
+      return {key: phone ? phone.key + (persons[share.index].isNumberShare ? ':number-share' : '') : 'name:' + label.toLowerCase(), label, cents: share.total};
     })
   };
 }
