@@ -6,6 +6,19 @@ function readInvoiceRecords() {
   return saved.filter(record => record && typeof record.invoice === 'string' && record.invoice.trim() && typeof record.period === 'string' && Array.isArray(record.lines) && record.lines.every(line => typeof line.key === 'string' && typeof line.label === 'string' && Number.isSafeInteger(line.cents)));
 }
 function invoiceIdentity(value) { return value.trim().toLowerCase(); }
+function billingPeriodOrder(period) {
+  // Sort by the end of the billing period; unknown periods appear last.
+  const end = period.trim().split(/\s+(?:[-–—]|to|through)\s+/i).pop();
+  if (!/\d{4}/.test(end)) return Infinity;
+  const timestamp = Date.parse(end);
+  return Number.isFinite(timestamp) ? timestamp : Infinity;
+}
+function sortInvoiceRecords() {
+  invoiceRecords.sort((a,b) => {
+    const first = billingPeriodOrder(a.period), second = billingPeriodOrder(b.period);
+    return (first === second ? 0 : first - second) || a.invoice.localeCompare(b.invoice, undefined, {numeric:true});
+  });
+}
 function buildInvoiceRecord(split) {
   return {
     invoice: $('invoice-number').value.trim(),
@@ -18,9 +31,11 @@ function buildInvoiceRecord(split) {
   };
 }
 function drawInvoiceHistory() {
-  $('invoice-cost-box').hidden = !invoiceRecords.length;
+  sortInvoiceRecords();
+  $('invoice-cost-box').hidden = false;
   const head = $('invoice-cost-head'), body = $('invoice-line-costs');
-  head.replaceChildren(); body.replaceChildren();
+  const foot = $('invoice-line-totals');
+  head.replaceChildren(); body.replaceChildren(); foot.replaceChildren();
   const columns = new Map();
   invoiceRecords.forEach(record => record.lines.forEach(line => columns.set(line.key, line.label)));
   const header = document.createElement('tr');
@@ -44,6 +59,23 @@ function drawInvoiceHistory() {
     });
     body.append(row);
   }
+  if (invoiceRecords.length) {
+    const row = document.createElement('tr');
+    const title = document.createElement('th'); title.colSpan = 2; title.scope = 'row';
+    title.textContent = 'Total cost'; title.style.cssText = 'padding:16px 12px;border-top:2px solid #bbcbbb'; row.append(title);
+    for (const key of columns.keys()) {
+      const totals = new Map();
+      for (const record of invoiceRecords) {
+        const currency = record.currency || 'USD';
+        for (const line of record.lines) if (line.key === key) totals.set(currency, (totals.get(currency) || 0) + line.cents);
+      }
+      const cell = document.createElement('td');
+      cell.style.cssText = 'padding:16px 12px;border-top:2px solid #bbcbbb;font-weight:700;white-space:nowrap';
+      cell.textContent = [...totals.entries()].map(([currency,cents]) => new Intl.NumberFormat(undefined,{style:'currency',currency}).format(cents/100)).join(' + ');
+      row.append(cell);
+    }
+    foot.append(row);
+  }
 }
 function appendInvoiceRecord(split) {
   const record = buildInvoiceRecord(split);
@@ -60,6 +92,7 @@ function appendInvoiceRecord(split) {
     drawInvoiceHistory(); status.textContent = 'Invoice ' + record.invoice + ' is already saved. No duplicate was added.'; return;
   }
   invoiceRecords.push(record);
+  sortInvoiceRecords();
   try {
     localStorage.setItem(invoiceHistoryKey, JSON.stringify(invoiceRecords));
     status.textContent = 'Invoice ' + record.invoice + ' added and saved in this browser.';
@@ -69,4 +102,14 @@ function appendInvoiceRecord(split) {
   drawInvoiceHistory();
 }
 try { invoiceRecords = readInvoiceRecords(); } catch { /* Start with an empty session when storage cannot be read. */ }
+$('reset-record').addEventListener('click', () => {
+  try {
+    localStorage.setItem(invoiceHistoryKey, '[]');
+    invoiceRecords = [];
+    drawInvoiceHistory();
+    $('invoice-history-status').textContent = 'All saved invoice records have been erased.';
+  } catch {
+    $('invoice-history-status').textContent = 'Unable to erase browser storage. Records have not been cleared; please try again.';
+  }
+});
 drawInvoiceHistory();
