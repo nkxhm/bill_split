@@ -40,7 +40,22 @@ function findAccountLines(pages) {
       if (!/^(?:(?:wireless|mobile|phone|line)\s*(?:number|no\.?|#|:)?\s*[:#]?\s*)?(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*$/i.test(row.trim())) continue;
       for (const phone of findPhoneNumbers(row)) {
         if (/^(800|888|877|866|855|844|833|822)/.test(phone.key)) continue;
-        found.set(phone.key, phone);
+        // Verizon places the subscriber's name and line total above the
+        // device and number. Require that structure rather than guessing
+        // from device descriptions or nearby charge labels.
+        let name = '';
+        for (let previous = i - 1; previous >= Math.max(0, i - 6); previous--) {
+          const candidate = rows[previous].trim();
+          if (isChargeHeading(candidate) || stopHeading.test(candidate) || isActivity(candidate) || findPhoneNumbers(candidate).length) break;
+          const match = candidate.match(/^([\p{L}][\p{L}\p{M} .,'’\-]{1,79}?)\s+(?:[-−]?\$\s*[\d,]+\.\d{2})\s*$/u);
+          if (!match) continue;
+          const possible = match[1].trim().replace(/\s+/g, ' ');
+          if (/\b(?:plan|devices?|surcharges?|taxes|fees|credit|discount|payment|service|charge|total|balance|unlimited|account|promo|agreement)\b/i.test(possible)) continue;
+          name = possible;
+          break;
+        }
+        const existing = found.get(phone.key);
+        if (!existing || (!existing.name && name)) found.set(phone.key, {...phone, name});
       }
     }
     priorPageInCharges = inCharges;
@@ -88,8 +103,9 @@ async function recognizeLines(file, generation) {
       const label = document.createElement('label');
       label.style.cssText = 'display:flex;align-items:center;gap:10px;margin:12px 0';
       const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox'; checkbox.value = number.label; checkbox.style.width = 'auto';
-      label.append(checkbox, document.createTextNode(number.label)); list.append(label);
+      const display = number.name ? number.name + ' · ' + number.label : number.label;
+      checkbox.type = 'checkbox'; checkbox.value = display; checkbox.style.width = 'auto';
+      label.append(checkbox, document.createTextNode(display)); list.append(label);
     }
     $('line-import').hidden = !numbers.length;
     $('line-status').textContent = numbers.length
