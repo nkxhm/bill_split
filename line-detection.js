@@ -192,10 +192,11 @@ async function recognizeLines(file, generation) {
     $('line-status').textContent = numbers.length
       ? numbers.length + ' account lines found in Charge by line details. Review and select the lines to import.' + (pdf.numPages > 100 ? ' Only the first 100 pages were read.' : '')
       : 'No account lines found in a recognized Charge by line details section. Call history and talk activity are excluded. Add lines manually if the bill uses an unsupported layout or is scanned.';
-    $('pdf-status').textContent = file.name + ' · Ready to review.';
+    if (numbers.length) $('add-all-lines').click();
+    $('pdf-status').textContent = file.name + ' · Selected. Costs displayed below.';
   } catch (error) {
     if (generation === uploadGeneration && !/password protected/.test($('line-status').textContent)) {
-      $('line-status').textContent = 'Could not read phone numbers from this PDF. You can still preview it and add lines manually.';
+      $('line-status').textContent = 'Could not read phone numbers from this PDF. You can enter the bill and lines manually below.';
     }
   } finally { if (task) await task.destroy().catch(() => {}); }
 }
