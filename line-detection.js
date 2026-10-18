@@ -190,11 +190,11 @@ async function recognizeLines(file, generation) {
     if (total !== null) {
       $('bill').value = (total / 100).toFixed(2);
       update();
-      $('total-source').textContent = 'Detected from PDF: ' + money(total) + '. Amount detected from PDF (read-only). Review the selected currency.';
+      $('total-source').textContent = 'Detected from PDF: ' + money(total) + '. Amount detected from PDF. You can edit the total and selected currency.';
     } else {
       $('bill').value = '';
       update();
-      $('total-source').textContent = 'Could not identify a single total amount due in this PDF.';
+      $('total-source').textContent = 'Could not identify a single total amount due in this PDF. Enter the total bill amount above.';
     }
     const numbers = findAccountLines(chunks);
     const extras = findLineExtras(chunks, numbers);
