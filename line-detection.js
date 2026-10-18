@@ -136,6 +136,20 @@ function findBillTotal(pages) {
   }
   return null;
 }
+function findBillMetadata(pages) {
+  const invoices = new Set(), periods = new Set();
+  const month = '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
+  const date = '(?:' + month + '\\s+\\d{1,2}(?:,?\\s+\\d{4})?|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|\\d{4}-\\d{2}-\\d{2})';
+  const periodPattern = new RegExp('billing\\s*period\\s*[:#]?\\s*(' + date + '\\s*(?:[-–—]|to|through)\\s*' + date + ')', 'gi');
+  for (const page of pages.slice(0, 5)) {
+    const text = page.replace(/[\t ]+/g, ' ');
+    for (const match of text.matchAll(/\binvoice\s*(?:number|no\.?|#)?\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{3,39})\b/gi)) {
+      if (/\d/.test(match[1])) invoices.add(match[1]);
+    }
+    for (const match of text.matchAll(periodPattern)) periods.add(match[1].replace(/\s+/g,' ').trim());
+  }
+  return {invoice: invoices.size === 1 ? [...invoices][0] : '', period: periods.size === 1 ? [...periods][0] : ''};
+}
 let pdfLibrary;
 async function recognizeLines(file, generation) {
   let task;
@@ -158,6 +172,10 @@ async function recognizeLines(file, generation) {
       page.cleanup();
     }
     if (generation !== uploadGeneration) return;
+    const metadata = findBillMetadata(chunks);
+    $('invoice-number').value = metadata.invoice;
+    $('billing-period').value = metadata.period;
+    $('metadata-status').textContent = metadata.invoice && metadata.period ? 'Detected from the selected PDF. You can edit these details.' : 'Some bill details could not be detected confidently. Enter missing details below.';
     const total = findBillTotal(chunks);
     if (total !== null) {
       $('bill').value = (total / 100).toFixed(2);
