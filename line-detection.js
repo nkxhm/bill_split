@@ -63,7 +63,7 @@ function findAccountLines(pages) {
   return [...found.values()];
 }
 function findLineExtras(pages, lines) {
-  const extras = new Map(lines.map(line => [line.key, {device:0, surcharges:0, taxes:0}]));
+  const extras = new Map(lines.map(line => [line.key, {device:0, surcharges:0, taxes:0, plan:0, isWatch:false}]));
   const compact = s => s.toLowerCase().replace(/[^a-z]/g, '');
   let active = null, inCharges = false, category = null, summarized = false;
   for (const page of pages) {
@@ -78,14 +78,16 @@ function findLineExtras(pages, lines) {
       if (/(?:talkactivity|callinghistory|callhistory|callactivity|usageactivity|detailedusage|textactivity)/.test(normalized)) { inCharges = false; active = null; continue; }
       const phone = findPhoneNumbers(row.trim());
       if (phone.length === 1 && extras.has(phone[0].key) && /^(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*$/.test(row.trim())) {
-        active = phone[0].key; category = null; summarized = false; continue;
+        active = phone[0].key; category = null; summarized = false; if(/smartwatchlineaccess|numbershare/.test(compact(rows.slice(Math.max(0,rows.indexOf(row)-2),rows.indexOf(row)+1).join(' ')))) extras.get(active).isWatch=true; continue;
       }
       if (!active) continue;
+      if ((category === 'plan' || category === null) && /smartwatchlineaccess|numbershare/.test(normalized)) extras.get(active).isWatch = true;
       const amount = row.match(/([-−]?)\$\s*([\d,]+\.\d{2})\s*$/);
       const cents = amount ? Math.round(Number(amount[2].replace(/,/g,''))*100)*(amount[1] ? -1 : 1) : null;
       const label = compact(amount ? row.slice(0, amount.index) : row);
       let next = null;
-      if (/^devices?(?:charges?|payments?|costs?)?$/.test(label)) next = 'device';
+      if (/^plan$/.test(label)) next = 'plan';
+      else if (/^devices?(?:charges?|payments?|costs?)?$/.test(label)) next = 'device';
       else if (/^surcharges?$/.test(label)) next = 'surcharges';
       else if (/^taxes(?:and)?gov(?:ernment)?fees$/.test(label)) next = 'taxes';
       if (next) {
@@ -93,7 +95,7 @@ function findLineExtras(pages, lines) {
         if (cents !== null) extras.get(active)[next] += cents;
         continue;
       }
-      if (/^(?:plan|onetimecharges|onetimechargesandcredits|internationalcalls|internationalmessages|usage|usageandpurchasecharges|servicesandperks|accountwidechargesandcredits)$/.test(label)) { category = null; summarized = false; continue; }
+      if (/^(?:onetimecharges|onetimechargesandcredits|internationalcalls|internationalmessages|usage|usageandpurchasecharges|servicesandperks|accountwidechargesandcredits)$/.test(label)) { category = null; summarized = false; continue; }
       // Where a section has no subtotal, sum its itemized amounts once.
       if (category && !summarized && cents !== null && !/remaining|agreement|payment\s+\d+\s+of/i.test(row)) extras.get(active)[category] += cents;
     }
@@ -197,13 +199,15 @@ async function recognizeLines(file, generation) {
       const display = number.name ? number.name + ' · ' + number.label : number.label;
       checkbox.type = 'checkbox'; checkbox.value = display; checkbox.style.width = 'auto';
       const costs = extras.get(number.key);
-      checkbox.dataset.extra = ((costs.device + costs.surcharges + costs.taxes)/100).toFixed(2);
-      checkbox.dataset.breakdown = 'Device (net of credits): ' + money(costs.device) + ' · Surcharges: ' + money(costs.surcharges) + ' · Taxes & gov fees: ' + money(costs.taxes);
+      const lineCost = (costs.isWatch ? costs.plan : costs.device) + costs.surcharges + costs.taxes;
+      checkbox.dataset.watch = String(costs.isWatch);
+      checkbox.dataset.extra = (lineCost/100).toFixed(2);
+      checkbox.dataset.breakdown = (costs.isWatch ? 'Smartwatch / Number Share · Plan: ' + money(costs.plan) : 'Device (net of credits): ' + money(costs.device)) + ' · Surcharges: ' + money(costs.surcharges) + ' · Taxes & gov fees: ' + money(costs.taxes);
       const text = document.createElement('span');
       text.textContent = display;
       const detail = document.createElement('small');
       detail.style.cssText = 'display:block;font-weight:400;line-height:1.5;color:#718078;margin-top:4px';
-      detail.textContent = checkbox.dataset.breakdown + ' · Extras total: ' + money(costs.device + costs.surcharges + costs.taxes);
+      detail.textContent = checkbox.dataset.breakdown + (costs.isWatch ? ' · Separate line cost: ' : ' · Extras total: ') + money(lineCost);
       text.append(detail); label.append(checkbox, text); list.append(label);
     }
     $('line-import').hidden = !numbers.length;
@@ -219,7 +223,7 @@ async function recognizeLines(file, generation) {
   } finally { if (task) await task.destroy().catch(() => {}); }
 }
 $('import-lines').addEventListener('click', () => {
-  const selected = [...$('line-candidates').querySelectorAll('input:checked')].map(input => ({name:input.value, extra:Number(input.dataset.extra || 0), extraBreakdown:input.dataset.breakdown || ''}));
+  const selected = [...$('line-candidates').querySelectorAll('input:checked')].map(input => ({name:input.value, extra:Number(input.dataset.extra || 0), isWatch:input.dataset.watch==='true', extraBreakdown:input.dataset.breakdown || ''}));
   if (!selected.length) { $('line-status').textContent = 'Select at least one phone number to import.'; return; }
   persons = selected; draw();
   $('line-status').textContent = selected.length + ' plan lines imported. You can edit their labels and individual extras below.';
