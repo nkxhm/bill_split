@@ -32,6 +32,7 @@ function buildInvoiceRecord(split) {
 }
 function drawInvoiceHistory() {
   sortInvoiceRecords();
+  $('download-table').disabled = !invoiceRecords.length;
   $('invoice-cost-box').hidden = false;
   const head = $('invoice-cost-head'), body = $('invoice-line-costs');
   const foot = $('invoice-line-totals');
@@ -101,6 +102,37 @@ function appendInvoiceRecord(split) {
   }
   drawInvoiceHistory();
 }
+function csvCell(value) {
+  let text = String(value);
+  // Preserve displayed text and prevent spreadsheet formula interpretation.
+  if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+function invoiceTableCsv() {
+  const rows = [];
+  for (const section of ['invoice-cost-head', 'invoice-line-costs', 'invoice-line-totals']) {
+    for (const row of $(section).children) {
+      const values = [];
+      for (const cell of row.children) {
+        values.push(cell.textContent);
+        for (let i = 1; i < (cell.colSpan || 1); i++) values.push('');
+      }
+      rows.push(values.map(csvCell).join(','));
+    }
+  }
+  return '\uFEFF' + rows.join('\r\n') + '\r\n';
+}
+$('download-table').addEventListener('click', () => {
+  if (!invoiceRecords.length) return;
+  drawInvoiceHistory();
+  const url = URL.createObjectURL(new Blob([invoiceTableCsv()], {type:'text/csv;charset=utf-8'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'linesplit-invoice-costs.csv';
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  $('invoice-history-status').textContent = 'Invoice table downloaded as CSV, including the totals row.';
+});
 try { invoiceRecords = readInvoiceRecords(); } catch { /* Start with an empty session when storage cannot be read. */ }
 $('reset-record').addEventListener('click', () => {
   try {
