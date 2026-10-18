@@ -63,7 +63,7 @@ function findAccountLines(pages) {
   return [...found.values()];
 }
 function findLineExtras(pages, lines) {
-  const extras = new Map(lines.map(line => [line.key, {device:0, surcharges:0, taxes:0, plan:0, isWatch:false}]));
+  const extras = new Map(lines.map(line => [line.key, {device:0, surcharges:0, taxes:0, oneTime:0, plan:0, isWatch:false}]));
   const compact = s => s.toLowerCase().replace(/[^a-z]/g, '');
   let active = null, inCharges = false, category = null, summarized = false;
   for (const page of pages) {
@@ -88,6 +88,7 @@ function findLineExtras(pages, lines) {
       let next = null;
       if (/^plan$/.test(label)) next = 'plan';
       else if (/^devices?(?:charges?|payments?|costs?)?$/.test(label)) next = 'device';
+      else if (/^onetimecharges?(?:and)?credits?$|^onetimecharges?$/.test(label)) next = 'oneTime';
       else if (/^surcharges?$/.test(label)) next = 'surcharges';
       else if (/^taxes(?:and)?gov(?:ernment)?fees$/.test(label)) next = 'taxes';
       if (next) {
@@ -95,7 +96,7 @@ function findLineExtras(pages, lines) {
         if (cents !== null) extras.get(active)[next] += cents;
         continue;
       }
-      if (/^(?:onetimecharges|onetimechargesandcredits|internationalcalls|internationalmessages|usage|usageandpurchasecharges|servicesandperks|accountwidechargesandcredits)$/.test(label)) { category = null; summarized = false; continue; }
+      if (/^(?:internationalcalls|internationalmessages|usage|usageandpurchasecharges|servicesandperks|accountwidechargesandcredits)$/.test(label)) { category = null; summarized = false; continue; }
       // Where a section has no subtotal, sum its itemized amounts once.
       if (category && !summarized && cents !== null && !/remaining|agreement|payment\s+\d+\s+of/i.test(row)) extras.get(active)[category] += cents;
     }
@@ -199,10 +200,10 @@ async function recognizeLines(file, generation) {
       const display = number.name ? number.name + ' · ' + number.label : number.label;
       checkbox.type = 'checkbox'; checkbox.value = display; checkbox.style.width = 'auto';
       const costs = extras.get(number.key);
-      const lineCost = (costs.isWatch ? costs.plan : costs.device) + costs.surcharges + costs.taxes;
+      const lineCost = (costs.isWatch ? costs.plan : costs.device + costs.oneTime) + costs.surcharges + costs.taxes;
       checkbox.dataset.watch = String(costs.isWatch);
       checkbox.dataset.extra = (lineCost/100).toFixed(2);
-      checkbox.dataset.breakdown = (costs.isWatch ? 'Smartwatch / Number Share · Plan: ' + money(costs.plan) : 'Device (net of credits): ' + money(costs.device)) + ' · Surcharges: ' + money(costs.surcharges) + ' · Taxes & gov fees: ' + money(costs.taxes);
+      checkbox.dataset.breakdown = (costs.isWatch ? 'Smartwatch / Number Share · Plan: ' + money(costs.plan) : 'Device (net of credits): ' + money(costs.device)) + ' · Surcharges: ' + money(costs.surcharges) + ' · Taxes & gov fees: ' + money(costs.taxes) + (costs.isWatch ? '' : ' · One-time charges & credits: ' + money(costs.oneTime));
       const text = document.createElement('span');
       text.textContent = display;
       const detail = document.createElement('small');
