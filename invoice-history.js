@@ -30,6 +30,27 @@ function buildInvoiceRecord(split) {
     })
   };
 }
+function groupFamilyColumns(columns) {
+  const families = [
+    ['yuan xu', 'chao liu'],
+    ['yang yang', 'anping xie'],
+    ['luning zhuang', 'nicole xia', 'manning xia'],
+    ['youwei bi']
+  ];
+  const entries = [...columns.entries()];
+  const nameOf = label => label.split(/[·(\d]/)[0].trim().toLowerCase().replace(/\s+/g, ' ');
+  const familyOf = label => families.findIndex(names => names.includes(nameOf(label)));
+  const used = new Set(), ordered = new Map();
+  for (const [key, label] of entries) {
+    if (used.has(key)) continue;
+    const family = familyOf(label);
+    const members = family < 0 ? [[key, label]] : entries.filter(([,candidate]) => familyOf(candidate) === family).sort((a,b) => families[family].indexOf(nameOf(a[1])) - families[family].indexOf(nameOf(b[1])));
+    for (const [memberKey, memberLabel] of members) {
+      if (!used.has(memberKey)) { ordered.set(memberKey, memberLabel); used.add(memberKey); }
+    }
+  }
+  return ordered;
+}
 function drawInvoiceHistory() {
   sortInvoiceRecords();
   $('download-table').disabled = !invoiceRecords.length;
@@ -37,8 +58,9 @@ function drawInvoiceHistory() {
   const head = $('invoice-cost-head'), body = $('invoice-line-costs');
   const foot = $('invoice-line-totals');
   head.replaceChildren(); body.replaceChildren(); foot.replaceChildren();
-  const columns = new Map();
+  let columns = new Map();
   invoiceRecords.forEach(record => record.lines.forEach(line => columns.set(line.key, line.label)));
+  columns = groupFamilyColumns(columns);
   const header = document.createElement('tr');
   for (const label of ['Invoice number', 'Billing period', ...columns.values()]) {
     const th = document.createElement('th'); th.scope = 'col';
