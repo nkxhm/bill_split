@@ -8,38 +8,36 @@ function findPhoneNumbers(text) {
   }
   return [...numbers.values()];
 }
-// Only accept numbers with account/charge context. Never fall back to all
-// numbers in the document: activity tables contain other people's numbers.
+// Read only the charge-by-line section. No whole-document phone fallback.
 function findAccountLines(pages) {
   const found = new Map();
-  const summary = /\b(?:account summary|account overview|wireless summary|your (?:lines|devices|phone numbers)|lines on (?:your|this) account|(?:charges|cost|summary) (?:by|per|for each) (?:line|number)|(?:line|wireless|monthly|service) (?:summary|charges)|plans? (?:and|&) (?:devices|services)|bill(?:ing)? summary)\b/i;
-  const activity = /\b(?:call(?:ing)? (?:history|detail|activity|log)|talk (?:activity|detail)|(?:voice|text|message|data|usage) (?:activity|detail|history)|detailed usage|numbers? (?:called|dialed)|incoming calls|outgoing calls)\b/i;
-  const support = /\b(?:customer (?:service|care|support)|contact us|call us|questions|payment (?:options|address)|to pay|support|fax|tty)\b/i;
-  const explicit = /\b(?:wireless|mobile|subscriber|telephone|phone|line)\s*(?:number|no\.?|#|:)\s*[:#]?\s*$/i;
-  let inSummary = false;
+  const chargeHeading = /\bcharges?\s+by\s+line(?:\s+details?)?\b/i;
+  const stopHeading = /\b(?:call(?:ing)?\s+(?:history|details?|activity|log)|talk\s+(?:activity|details?)|(?:voice|text|message|data|usage)\s+(?:activity|details?|history)|detailed\s+usage|numbers?\s+(?:called|dialed)|incoming\s+calls|outgoing\s+calls|account\s+(?:summary|overview)|bill(?:ing)?\s+summary|payment\s+(?:options|details)|important\s+(?:information|messages))\b/i;
+  const support = /\b(?:customer\s+(?:service|care|support)|contact us|call us|questions|to pay|support|fax|tty)\b/i;
+  let priorPageInCharges = false;
   for (const page of pages) {
-    // A page containing activity is never treated as a whole summary section.
-    // Explicit summary rows before the activity heading may still qualify.
     const rows = page.split(/\n/);
-    if (activity.test(page)) inSummary = false;
+    // Carry across only an explicitly marked continuation page. An unrelated
+    // page without a charge-by-line heading never supplies candidates.
+    let inCharges = priorPageInCharges && /continued/i.test(rows.slice(0, 5).join(' '));
     let blocked = false;
     let supportRows = 0;
-    for (const row of rows) {
-      if (activity.test(row)) { blocked = true; inSummary = false; continue; }
-      if (blocked) continue;
-      if (summary.test(row)) { inSummary = true; supportRows = 0; }
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (stopHeading.test(row)) { inCharges = false; blocked = true; continue; }
+      if (blocked && !chargeHeading.test(row)) continue;
+      if (chargeHeading.test(row)) blocked = false;
+      // Accommodate headings split into two PDF text rows.
+      if (chargeHeading.test(row) || chargeHeading.test(row + ' ' + (rows[i+1] || ''))) inCharges = true;
+      if (!inCharges) continue;
       if (support.test(row)) { supportRows = 2; continue; }
       if (supportRows > 0) { supportRows--; continue; }
-      const phones = findPhoneNumbers(row);
-      for (const phone of phones) {
-        const digits = phone.key;
-        // Toll-free customer service numbers are not subscriber plan lines.
-        if (/^(800|888|877|866|855|844|833|822)/.test(digits)) continue;
-        const firstPhone = row.search(/(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}/);
-        const prefix = row.slice(0, firstPhone);
-        if (inSummary || explicit.test(prefix)) found.set(phone.key, phone);
+      for (const phone of findPhoneNumbers(row)) {
+        if (/^(800|888|877|866|855|844|833|822)/.test(phone.key)) continue;
+        found.set(phone.key, phone);
       }
     }
+    priorPageInCharges = inCharges;
   }
   return [...found.values()];
 }
@@ -89,8 +87,8 @@ async function recognizeLines(file, generation) {
     }
     $('line-import').hidden = !numbers.length;
     $('line-status').textContent = numbers.length
-      ? numbers.length + ' account lines found in account/line summary sections. Review and select the lines to import.' + (pdf.numPages > 100 ? ' Only the first 100 pages were read.' : '')
-      : 'No account lines could be confidently identified. Call history and talk activity are excluded. Add lines manually if the bill uses an unsupported layout or is scanned.';
+      ? numbers.length + ' account lines found in Charge by line details. Review and select the lines to import.' + (pdf.numPages > 100 ? ' Only the first 100 pages were read.' : '')
+      : 'No account lines found in a recognized Charge by line details section. Call history and talk activity are excluded. Add lines manually if the bill uses an unsupported layout or is scanned.';
     $('pdf-status').textContent = file.name + ' · Ready to review.';
   } catch (error) {
     if (generation === uploadGeneration && !/password protected/.test($('line-status').textContent)) {
