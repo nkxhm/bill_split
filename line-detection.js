@@ -62,6 +62,46 @@ function findAccountLines(pages) {
   }
   return [...found.values()];
 }
+function findLineExtras(pages, lines) {
+  const extras = new Map(lines.map(line => [line.key, {device:0, oneTime:0, international:0}]));
+  const compact = s => s.toLowerCase().replace(/[^a-z]/g, '');
+  let active = null, inCharges = false, category = null, summarized = false;
+  for (const page of pages) {
+    const rows = page.split('\n');
+    const heading = rows.slice(0,10).some(row => /charges?bylinedetails?/.test(compact(row)));
+    if (!heading) { active = null; inCharges = false; category = null; summarized = false; continue; }
+    inCharges = false;
+    for (const row of rows) {
+      const normalized = compact(row);
+      if (/charges?bylinedetails?/.test(normalized)) { inCharges = true; continue; }
+      if (!inCharges) continue;
+      if (/(?:talkactivity|callinghistory|callhistory|callactivity|usageactivity|detailedusage|textactivity)/.test(normalized)) { inCharges = false; active = null; continue; }
+      const phone = findPhoneNumbers(row.trim());
+      if (phone.length === 1 && extras.has(phone[0].key) && /^(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*$/.test(row.trim())) {
+        active = phone[0].key; category = null; summarized = false; continue;
+      }
+      if (!active) continue;
+      const amount = row.match(/([-−]?)\$\s*([\d,]+\.\d{2})\s*$/);
+      const cents = amount ? Math.round(Number(amount[2].replace(/,/g,''))*100)*(amount[1] ? -1 : 1) : null;
+      const label = compact(amount ? row.slice(0, amount.index) : row);
+      let next = null;
+      if (/^devices?(?:charges?|payments?|costs?)?$/.test(label)) next = 'device';
+      else if (/^onetime(?:charges?(?:andcredits)?|fees)?$/.test(label)) next = 'oneTime';
+      else if (/^(?:international|intl).*(?:calls?|messages?|messaging|texts?|longdistance|charges?)|^(?:calls?|messages?|texts?).*(?:international|intl)/.test(label)) next = 'international';
+      // A one-time section total already includes its international details.
+      if (next === 'international' && category === 'oneTime' && summarized) continue;
+      if (next) {
+        if (next !== category || next !== 'international') { category = next; summarized = cents !== null; }
+        if (cents !== null) extras.get(active)[next] += cents;
+        continue;
+      }
+      if (/^(?:plan|surcharges|taxesandgovfees|taxesgovfees|usage|usageandpurchasecharges|servicesandperks|accountwidechargesandcredits)$/.test(label)) { category = null; summarized = false; continue; }
+      // Where a section has no subtotal, sum its itemized amounts once.
+      if (category && !summarized && cents !== null && !/remaining|agreement|payment\s+\d+\s+of/i.test(row)) extras.get(active)[category] += cents;
+    }
+  }
+  return extras;
+}
 function pageText(items) {
   // Position-based rows keep table cells together even if PDF text items
   // are emitted in column order or omit hasEOL.
@@ -129,6 +169,7 @@ async function recognizeLines(file, generation) {
       $('total-source').textContent = 'Could not identify a single total amount due. Enter the total bill amount manually.';
     }
     const numbers = findAccountLines(chunks);
+    const extras = findLineExtras(chunks, numbers);
     const list = $('line-candidates');
     list.replaceChildren();
     for (const number of numbers) {
@@ -137,7 +178,15 @@ async function recognizeLines(file, generation) {
       const checkbox = document.createElement('input');
       const display = number.name ? number.name + ' · ' + number.label : number.label;
       checkbox.type = 'checkbox'; checkbox.value = display; checkbox.style.width = 'auto';
-      label.append(checkbox, document.createTextNode(display)); list.append(label);
+      const costs = extras.get(number.key);
+      checkbox.dataset.extra = ((costs.device + costs.oneTime + costs.international)/100).toFixed(2);
+      checkbox.dataset.breakdown = 'Device (net of credits): ' + money(costs.device) + ' · One-time: ' + money(costs.oneTime) + ' · International calls/messages: ' + money(costs.international);
+      const text = document.createElement('span');
+      text.textContent = display;
+      const detail = document.createElement('small');
+      detail.style.cssText = 'display:block;font-weight:400;line-height:1.5;color:#718078;margin-top:4px';
+      detail.textContent = checkbox.dataset.breakdown + ' · Extras total: ' + money(costs.device + costs.oneTime + costs.international);
+      text.append(detail); label.append(checkbox, text); list.append(label);
     }
     $('line-import').hidden = !numbers.length;
     $('line-status').textContent = numbers.length
@@ -151,9 +200,9 @@ async function recognizeLines(file, generation) {
   } finally { if (task) await task.destroy().catch(() => {}); }
 }
 $('import-lines').addEventListener('click', () => {
-  const selected = [...$('line-candidates').querySelectorAll('input:checked')].map(input => input.value);
+  const selected = [...$('line-candidates').querySelectorAll('input:checked')].map(input => ({name:input.value, extra:Number(input.dataset.extra || 0), extraBreakdown:input.dataset.breakdown || ''}));
   if (!selected.length) { $('line-status').textContent = 'Select at least one phone number to import.'; return; }
-  persons = selected.map(name => ({name, extra: 0})); draw();
+  persons = selected; draw();
   $('line-status').textContent = selected.length + ' plan lines imported. You can edit their labels and individual extras below.';
   $('line-import').hidden = true;
 });
