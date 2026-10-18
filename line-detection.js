@@ -157,3 +157,8 @@ $('import-lines').addEventListener('click', () => {
   $('line-status').textContent = selected.length + ' plan lines imported. You can edit their labels and individual extras below.';
   $('line-import').hidden = true;
 });
+
+$('add-all-lines').addEventListener('click', () => {
+  for (const input of $('line-candidates').querySelectorAll('input[type=checkbox]')) input.checked = true;
+  $('import-lines').click();
+});
