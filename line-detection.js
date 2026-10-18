@@ -74,6 +74,30 @@ function pageText(items) {
   }
   return [...rows.entries()].sort((a,b) => b[0]-a[0]).map(([,row]) => row.sort((a,b) => a.transform[4]-b.transform[4]).map(item => item.str).join(' ')).join('\n');
 }
+function findBillTotal(pages) {
+  // Read explicit bill-level labels, never paid amounts or individual line
+  // totals. Remove letter spacing used by PDF headings before matching.
+  const amount = '(?:US\\$|CA\\$|AU\\$|\\$|£|€)?([0-9]{1,3}(?:,[0-9]{3})*\\.[0-9]{2}|[0-9]+\\.[0-9]{2})(?![0-9])';
+  const labels = [
+    'totalamountdue', 'totalbalancedue',
+    'your(?:january|february|march|april|may|june|july|august|september|october|november|december)?billis',
+    'amountdue', 'totaldue'
+  ];
+  for (const label of labels) {
+    const values = new Set();
+    const pattern = new RegExp('(?<![a-z])' + label + '[:=]?' + amount, 'gi');
+    for (const page of pages.slice(0, 5)) {
+      const text = page.replace(/\s/g, '').toLowerCase();
+      for (const match of text.matchAll(pattern)) {
+        const value = Math.round(Number(match[1].replace(/,/g, '')) * 100);
+        if (Number.isSafeInteger(value) && value >= 0) values.add(value);
+      }
+    }
+    if (values.size === 1) return [...values][0];
+    if (values.size > 1) return null;
+  }
+  return null;
+}
 let pdfLibrary;
 async function recognizeLines(file, generation) {
   let task;
@@ -96,6 +120,14 @@ async function recognizeLines(file, generation) {
       page.cleanup();
     }
     if (generation !== uploadGeneration) return;
+    const total = findBillTotal(chunks);
+    if (total !== null) {
+      $('bill').value = (total / 100).toFixed(2);
+      update();
+      $('total-source').textContent = 'Detected from PDF: ' + money(total) + '. Review the amount and selected currency; you can edit either.';
+    } else {
+      $('total-source').textContent = 'Could not identify a single total amount due. Enter the total bill amount manually.';
+    }
     const numbers = findAccountLines(chunks);
     const list = $('line-candidates');
     list.replaceChildren();
