@@ -37,7 +37,7 @@ function findAccountLines(pages) {
       if (supportRows > 0) { supportRows--; continue; }
       // Subscriber numbers appear on their own device/line row. Reject
       // invoice IDs, agreement IDs, support text and activity table rows.
-      if (!/^(?:(?:wireless|mobile|phone|line)\s*(?:number|no\.?|#|:)?\s*[:#]?\s*)?(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*$/i.test(row.trim())) continue;
+      if (!/^(?:(?:wireless|mobile|phone|line)\s*(?:number|no\.?|#|:)?\s*[:#]?\s*)?(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*(?:\(Number Share\))?\s*$/i.test(row.trim())) continue;
       for (const phone of findPhoneNumbers(row)) {
         if (/^(800|888|877|866|855|844|833|822)/.test(phone.key)) continue;
         // Verizon places the subscriber's name and line total above the
@@ -54,8 +54,10 @@ function findAccountLines(pages) {
           name = possible;
           break;
         }
-        const existing = found.get(phone.key);
-        if (!existing || (!existing.name && name)) found.set(phone.key, {...phone, name});
+        const isNumberShare = /\(Number Share\)/i.test(row);
+        const key = phone.key + (isNumberShare ? ':number-share' : '');
+        const existing = found.get(key);
+        if (!existing || (!existing.name && name)) found.set(key, {...phone, key, name, isNumberShare, label:phone.label+(isNumberShare?' (Number Share)':'')});
       }
     }
     priorPageInCharges = inCharges;
@@ -63,7 +65,7 @@ function findAccountLines(pages) {
   return [...found.values()];
 }
 function findLineExtras(pages, lines) {
-  const extras = new Map(lines.map(line => [line.key, {device:0, surcharges:0, taxes:0, oneTime:0, plan:0, isWatch:false}]));
+  const extras = new Map(lines.map(line => [line.key, {device:0, surcharges:0, taxes:0, oneTime:0, plan:0, isWatch:!!line.isNumberShare, isNumberShare:!!line.isNumberShare}]));
   const compact = s => s.toLowerCase().replace(/[^a-z]/g, '');
   let active = null, inCharges = false, category = null, summarized = false;
   for (const page of pages) {
@@ -77,8 +79,13 @@ function findLineExtras(pages, lines) {
       if (!inCharges) continue;
       if (/(?:talkactivity|callinghistory|callhistory|callactivity|usageactivity|detailedusage|textactivity)/.test(normalized)) { inCharges = false; active = null; continue; }
       const phone = findPhoneNumbers(row.trim());
-      if (phone.length === 1 && extras.has(phone[0].key) && /^(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*$/.test(row.trim())) {
-        active = phone[0].key; category = null; summarized = false; if(/smartwatchlineaccess|numbershare/.test(compact(rows.slice(Math.max(0,rows.indexOf(row)-2),rows.indexOf(row)+1).join(' ')))) extras.get(active).isWatch=true; continue;
+      const isNumberShare = /\(Number Share\)/i.test(row);
+      const lineKey = phone.length === 1 ? phone[0].key + (isNumberShare ? ':number-share' : '') : '';
+      if (phone.length === 1 && /^(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*(?:\(Number Share\))?\s*$/i.test(row.trim())) {
+        active = extras.has(lineKey) ? lineKey : null;
+        category = null; summarized = false;
+        if(active && isNumberShare) extras.get(active).isWatch=true;
+        continue;
       }
       if (!active) continue;
       if ((category === 'plan' || category === null) && /smartwatchlineaccess|numbershare/.test(normalized)) extras.get(active).isWatch = true;
@@ -202,6 +209,7 @@ async function recognizeLines(file, generation) {
       const costs = extras.get(number.key);
       const lineCost = (costs.isWatch ? costs.plan : costs.device + costs.oneTime) + costs.surcharges + costs.taxes;
       checkbox.dataset.watch = String(costs.isWatch);
+      checkbox.dataset.numberShare = String(costs.isNumberShare);
       checkbox.dataset.extra = (lineCost/100).toFixed(2);
       checkbox.dataset.breakdown = (costs.isWatch ? 'Smartwatch / Number Share · Plan: ' + money(costs.plan) : 'Device (net of credits): ' + money(costs.device)) + ' · Surcharges: ' + money(costs.surcharges) + ' · Taxes & gov fees: ' + money(costs.taxes) + (costs.isWatch ? '' : ' · One-time charges & credits: ' + money(costs.oneTime));
       const text = document.createElement('span');
@@ -224,7 +232,7 @@ async function recognizeLines(file, generation) {
   } finally { if (task) await task.destroy().catch(() => {}); }
 }
 $('import-lines').addEventListener('click', () => {
-  const selected = [...$('line-candidates').querySelectorAll('input:checked')].map(input => ({name:input.value, extra:Number(input.dataset.extra || 0), isWatch:input.dataset.watch==='true', extraBreakdown:input.dataset.breakdown || ''}));
+  const selected = [...$('line-candidates').querySelectorAll('input:checked')].map(input => ({name:input.value, extra:Number(input.dataset.extra || 0), isWatch:input.dataset.watch==='true', isNumberShare:input.dataset.numberShare==='true', extraBreakdown:input.dataset.breakdown || ''}));
   if (!selected.length) { $('line-status').textContent = 'Select at least one phone number to import.'; return; }
   persons = selected; draw();
   $('line-status').textContent = selected.length + ' plan lines imported. You can edit their labels and individual extras below.';

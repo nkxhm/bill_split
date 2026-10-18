@@ -2,7 +2,7 @@ const invoiceHistoryKey = 'linesplit.invoice-history.v1';
 let invoiceRecords = [];
 function canonicalLineKey(line) {
   const phone = findPhoneNumbers(line.label)[0];
-  if (phone) return phone.key;
+  if (phone) return phone.key + (line.key.endsWith(':number-share') || /\(Number Share\)/i.test(line.label) ? ':number-share' : '');
   const digits = line.key.replace(/\D/g, '');
   if (/^\d{10}$/.test(digits)) return digits;
   if (/^1\d{10}$/.test(digits)) return digits.slice(1);
@@ -34,7 +34,7 @@ function buildInvoiceRecord(split) {
     lines: split.shares.map((share, index) => {
       const label = persons[index].name.trim() || 'Person ' + (index + 1);
       const phone = findPhoneNumbers(label)[0];
-      return {key: phone ? phone.key : 'name:' + label.toLowerCase(), label, cents: share.total};
+      return {key: phone ? phone.key + (persons[index].isNumberShare ? ':number-share' : '') : 'name:' + label.toLowerCase(), label, cents: share.total};
     })
   };
 }
