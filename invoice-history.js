@@ -45,18 +45,32 @@ function groupFamilyColumns(columns) {
     ['luning zhuang', 'nicole xia', 'manning xia'],
     ['youwei bi']
   ];
+  const phoneFamilies = [
+    ['3522158189', '2677894600', '4452701573'],
+    ['6086926374', '6086959107', '4437669050']
+  ];
   const entries = [...columns.entries()];
   const nameOf = label => label.split(/[·(\d]/)[0].trim().toLowerCase().replace(/\s+/g, ' ');
-  const familyOf = label => families.findIndex(names => names.includes(nameOf(label)));
+  const parent = entries.map((_,i) => i);
+  const root = i => parent[i] === i ? i : (parent[i] = root(parent[i]));
+  const ranks = new Map();
+  const groups = [
+    ...families.map(names => names.flatMap(name => entries.map(([,label],i) => nameOf(label) === name ? i : -1).filter(i => i >= 0))),
+    ...phoneFamilies.map(phones => phones.flatMap(phone => entries.map(([key,label],i) => canonicalLineKey({key,label}) === phone ? i : -1).filter(i => i >= 0)))
+  ];
+  groups.forEach((members,group) => members.forEach((i,position) => {
+    if (!ranks.has(i)) ranks.set(i, group * 1000 + position);
+    if (members.length) parent[root(i)] = root(members[0]);
+  }));
   const used = new Set(), ordered = new Map();
-  for (const [key, label] of entries) {
-    if (used.has(key)) continue;
-    const family = familyOf(label);
-    const members = family < 0 ? [[key, label]] : entries.filter(([,candidate]) => familyOf(candidate) === family).sort((a,b) => families[family].indexOf(nameOf(a[1])) - families[family].indexOf(nameOf(b[1])));
-    for (const [memberKey, memberLabel] of members) {
-      if (!used.has(memberKey)) { ordered.set(memberKey, memberLabel); used.add(memberKey); }
-    }
-  }
+  entries.forEach((_,i) => {
+    const family = root(i);
+    if (used.has(family)) return;
+    used.add(family);
+    entries.map((entry,index) => ({entry,index})).filter(item => root(item.index) === family)
+      .sort((a,b) => (ranks.get(a.index) ?? a.index + 100000) - (ranks.get(b.index) ?? b.index + 100000))
+      .forEach(({entry:[key,label]}) => ordered.set(key,label));
+  });
   return ordered;
 }
 function drawInvoiceHistory() {
