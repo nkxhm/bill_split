@@ -175,14 +175,16 @@ async function recognizeLines(file, generation) {
     const metadata = findBillMetadata(chunks);
     $('invoice-number').value = metadata.invoice;
     $('billing-period').value = metadata.period;
-    $('metadata-status').textContent = metadata.invoice && metadata.period ? 'Detected from the selected PDF. You can edit these details.' : 'Some bill details could not be detected confidently. Enter missing details below.';
+    $('metadata-status').textContent = metadata.invoice && metadata.period ? 'Detected from the selected PDF. These fields are read-only.' : 'Some bill details could not be detected confidently. Missing fields are shown as not detected.';
     const total = findBillTotal(chunks);
     if (total !== null) {
       $('bill').value = (total / 100).toFixed(2);
       update();
-      $('total-source').textContent = 'Detected from PDF: ' + money(total) + '. Review the amount and selected currency; you can edit either.';
+      $('total-source').textContent = 'Detected from PDF: ' + money(total) + '. Amount detected from PDF (read-only). Review the selected currency.';
     } else {
-      $('total-source').textContent = 'Could not identify a single total amount due. Enter the total bill amount manually.';
+      $('bill').value = '';
+      update();
+      $('total-source').textContent = 'Could not identify a single total amount due in this PDF.';
     }
     const numbers = findAccountLines(chunks);
     const extras = findLineExtras(chunks, numbers);
@@ -212,7 +214,7 @@ async function recognizeLines(file, generation) {
     $('pdf-status').textContent = file.name + ' · Selected. Costs displayed below.';
   } catch (error) {
     if (generation === uploadGeneration && !/password protected/.test($('line-status').textContent)) {
-      $('line-status').textContent = 'Could not read phone numbers from this PDF. You can enter the bill and lines manually below.';
+      $('line-status').textContent = 'Could not read phone numbers from this PDF. Try another PDF with readable bill details.';
     }
   } finally { if (task) await task.destroy().catch(() => {}); }
 }
