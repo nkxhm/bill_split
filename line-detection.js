@@ -63,7 +63,7 @@ function findAccountLines(pages) {
   return [...found.values()];
 }
 function findLineExtras(pages, lines) {
-  const extras = new Map(lines.map(line => [line.key, {device:0, oneTime:0, international:0}]));
+  const extras = new Map(lines.map(line => [line.key, {device:0, surcharges:0, taxes:0}]));
   const compact = s => s.toLowerCase().replace(/[^a-z]/g, '');
   let active = null, inCharges = false, category = null, summarized = false;
   for (const page of pages) {
@@ -86,16 +86,14 @@ function findLineExtras(pages, lines) {
       const label = compact(amount ? row.slice(0, amount.index) : row);
       let next = null;
       if (/^devices?(?:charges?|payments?|costs?)?$/.test(label)) next = 'device';
-      else if (/^onetime(?:charges?(?:andcredits)?|fees)?$/.test(label)) next = 'oneTime';
-      else if (/^(?:international|intl).*(?:calls?|messages?|messaging|texts?|longdistance|charges?)|^(?:calls?|messages?|texts?).*(?:international|intl)/.test(label)) next = 'international';
-      // A one-time section total already includes its international details.
-      if (next === 'international' && category === 'oneTime' && summarized) continue;
+      else if (/^surcharges?$/.test(label)) next = 'surcharges';
+      else if (/^taxes(?:and)?gov(?:ernment)?fees$/.test(label)) next = 'taxes';
       if (next) {
-        if (next !== category || next !== 'international') { category = next; summarized = cents !== null; }
+        category = next; summarized = cents !== null;
         if (cents !== null) extras.get(active)[next] += cents;
         continue;
       }
-      if (/^(?:plan|surcharges|taxesandgovfees|taxesgovfees|usage|usageandpurchasecharges|servicesandperks|accountwidechargesandcredits)$/.test(label)) { category = null; summarized = false; continue; }
+      if (/^(?:plan|onetimecharges|onetimechargesandcredits|internationalcalls|internationalmessages|usage|usageandpurchasecharges|servicesandperks|accountwidechargesandcredits)$/.test(label)) { category = null; summarized = false; continue; }
       // Where a section has no subtotal, sum its itemized amounts once.
       if (category && !summarized && cents !== null && !/remaining|agreement|payment\s+\d+\s+of/i.test(row)) extras.get(active)[category] += cents;
     }
@@ -179,13 +177,13 @@ async function recognizeLines(file, generation) {
       const display = number.name ? number.name + ' · ' + number.label : number.label;
       checkbox.type = 'checkbox'; checkbox.value = display; checkbox.style.width = 'auto';
       const costs = extras.get(number.key);
-      checkbox.dataset.extra = ((costs.device + costs.oneTime + costs.international)/100).toFixed(2);
-      checkbox.dataset.breakdown = 'Device (net of credits): ' + money(costs.device) + ' · One-time: ' + money(costs.oneTime) + ' · International calls/messages: ' + money(costs.international);
+      checkbox.dataset.extra = ((costs.device + costs.surcharges + costs.taxes)/100).toFixed(2);
+      checkbox.dataset.breakdown = 'Device (net of credits): ' + money(costs.device) + ' · Surcharges: ' + money(costs.surcharges) + ' · Taxes & gov fees: ' + money(costs.taxes);
       const text = document.createElement('span');
       text.textContent = display;
       const detail = document.createElement('small');
       detail.style.cssText = 'display:block;font-weight:400;line-height:1.5;color:#718078;margin-top:4px';
-      detail.textContent = checkbox.dataset.breakdown + ' · Extras total: ' + money(costs.device + costs.oneTime + costs.international);
+      detail.textContent = checkbox.dataset.breakdown + ' · Extras total: ' + money(costs.device + costs.surcharges + costs.taxes);
       text.append(detail); label.append(checkbox, text); list.append(label);
     }
     $('line-import').hidden = !numbers.length;
