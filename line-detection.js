@@ -11,7 +11,9 @@ function findPhoneNumbers(text) {
 // Read only the charge-by-line section. No whole-document phone fallback.
 function findAccountLines(pages) {
   const found = new Map();
-  const chargeHeading = /\bcharges?\s+by\s+line(?:\s+details?)?\b/i;
+  const compact = text => text.toLowerCase().replace(/[^a-z]/g, '');
+  const isChargeHeading = text => /charges?bylinedetails?/.test(compact(text));
+  const isActivity = text => /(?:talkactivity|callinghistory|callhistory|callactivity|talkdetails|voiceactivity|usageactivity|detailedusage|textactivity)/.test(compact(text));
   const stopHeading = /\b(?:call(?:ing)?\s+(?:history|details?|activity|log)|talk\s+(?:activity|details?)|(?:voice|text|message|data|usage)\s+(?:activity|details?|history)|detailed\s+usage|numbers?\s+(?:called|dialed)|incoming\s+calls|outgoing\s+calls|account\s+(?:summary|overview)|bill(?:ing)?\s+summary|payment\s+(?:options|details)|important\s+(?:information|messages))\b/i;
   const support = /\b(?:customer\s+(?:service|care|support)|contact us|call us|questions|to pay|support|fax|tty)\b/i;
   let priorPageInCharges = false;
@@ -24,14 +26,18 @@ function findAccountLines(pages) {
     let supportRows = 0;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (stopHeading.test(row)) { inCharges = false; blocked = true; continue; }
-      if (blocked && !chargeHeading.test(row)) continue;
-      if (chargeHeading.test(row)) blocked = false;
+      if (stopHeading.test(row) || isActivity(row)) { inCharges = false; blocked = true; continue; }
+      if (blocked && !isChargeHeading(row)) continue;
+      if (isChargeHeading(row)) blocked = false;
       // Accommodate headings split into two PDF text rows.
-      if (chargeHeading.test(row) || chargeHeading.test(row + ' ' + (rows[i+1] || ''))) inCharges = true;
+      if (isChargeHeading(row)) { inCharges = true; continue; }
+      if (isChargeHeading(row + ' ' + (rows[i+1] || ''))) { inCharges = true; continue; }
       if (!inCharges) continue;
       if (support.test(row)) { supportRows = 2; continue; }
       if (supportRows > 0) { supportRows--; continue; }
+      // Subscriber numbers appear on their own device/line row. Reject
+      // invoice IDs, agreement IDs, support text and activity table rows.
+      if (!/^(?:(?:wireless|mobile|phone|line)\s*(?:number|no\.?|#|:)?\s*[:#]?\s*)?(?:\+?1[\s.-]*)?\(?[2-9]\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{4}\s*$/i.test(row.trim())) continue;
       for (const phone of findPhoneNumbers(row)) {
         if (/^(800|888|877|866|855|844|833|822)/.test(phone.key)) continue;
         found.set(phone.key, phone);
