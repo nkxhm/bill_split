@@ -1,9 +1,17 @@
 const invoiceHistoryKey = 'linesplit.invoice-history.v1';
 let invoiceRecords = [];
+function canonicalLineKey(line) {
+  const phone = findPhoneNumbers(line.label)[0];
+  if (phone) return phone.key;
+  const digits = line.key.replace(/\D/g, '');
+  if (/^\d{10}$/.test(digits)) return digits;
+  if (/^1\d{10}$/.test(digits)) return digits.slice(1);
+  return line.key;
+}
 function readInvoiceRecords() {
   const saved = JSON.parse(localStorage.getItem(invoiceHistoryKey) || '[]');
   if (!Array.isArray(saved)) throw new Error('Invalid saved history');
-  return saved.filter(record => record && typeof record.invoice === 'string' && record.invoice.trim() && typeof record.period === 'string' && Array.isArray(record.lines) && record.lines.every(line => typeof line.key === 'string' && typeof line.label === 'string' && Number.isSafeInteger(line.cents)));
+  return saved.filter(record => record && typeof record.invoice === 'string' && record.invoice.trim() && typeof record.period === 'string' && Array.isArray(record.lines) && record.lines.every(line => typeof line.key === 'string' && typeof line.label === 'string' && Number.isSafeInteger(line.cents))).map(record => ({...record, lines:record.lines.map(line => ({...line, key:canonicalLineKey(line)}))}));
 }
 function invoiceIdentity(value) { return value.trim().toLowerCase(); }
 function billingPeriodOrder(period) {
@@ -114,6 +122,17 @@ function appendInvoiceRecord(split) {
   if (invoiceRecords.some(saved => invoiceIdentity(saved.invoice) === invoiceIdentity(record.invoice))) {
     drawInvoiceHistory(); status.textContent = 'Invoice ' + record.invoice + ' is already saved. No duplicate was added.'; return;
   }
+  // Match the phone identity, never the display name. Update saved labels
+  // before date sorting so the just-appended record's name wins even when
+  // importing an older billing period. Historical costs remain untouched.
+  const currentLabels = new Map(record.lines.map(line => [canonicalLineKey(line), line.label]));
+  for (const saved of invoiceRecords) {
+    for (const line of saved.lines) {
+      line.key = canonicalLineKey(line);
+      if (currentLabels.has(line.key)) line.label = currentLabels.get(line.key);
+    }
+  }
+  record.lines.forEach(line => { line.key = canonicalLineKey(line); });
   invoiceRecords.push(record);
   sortInvoiceRecords();
   try {
